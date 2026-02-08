@@ -1,0 +1,150 @@
+---
+- name: Install RabbitMQ and build cluster (Ubuntu repo, RabbitMQ 3.x)
+  hosts: rabbitmq
+  become: true
+  gather_facts: true
+
+  vars:
+    rabbitmq_admin_user: admin
+    rabbitmq_admin_pass: admin
+    rabbitmq_vhost: "/"
+    rabbitmq_erlang_cookie: "RABBITMQ_LAB_COOKIE_2026_CHANGE_ME"
+    seed_host: "{{ groups['rabbitmq'][0] }}"
+    seed_node: "rabbit@{{ groups['rabbitmq'][0] }}"
+
+  tasks:
+    - name: Ensure hostname equals inventory name (important for rabbit@<hostname>)
+      ansible.builtin.hostname:
+        name: "{{ inventory_hostname }}"
+
+    - name: Ensure /etc/hosts contains all rabbit nodes (name resolution)
+      ansible.builtin.blockinfile:
+        path: /etc/hosts
+        marker: "# {mark} ANSIBLE RABBITMQ CLUSTER"
+        block: |
+          {% for h in groups['rabbitmq'] %}
+          {{ hostvars[h].ansible_host }} {{ h }}
+          {% endfor %}
+
+    - name: Apt update
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Ensure universe repo enabled (Ubuntu)
+      ansible.builtin.apt_repository:
+        repo: "deb http://archive.ubuntu.com/ubuntu {{ ansible_distribution_release }} universe"
+        state: present
+      when: ansible_distribution == "Ubuntu"
+
+    - name: Install RabbitMQ from Ubuntu repo (RabbitMQ 3.x)
+      ansible.builtin.apt:
+        name: rabbitmq-server
+        state: present
+
+    - name: Stop RabbitMQ before cookie/plugin setup
+      ansible.builtin.service:
+        name: rabbitmq-server
+        state: stopped
+
+    - name: Ensure rabbitmq home exists
+      ansible.builtin.file:
+        path: /var/lib/rabbitmq
+        state: directory
+        owner: rabbitmq
+        group: rabbitmq
+        mode: "0700"
+
+    - name: Set shared Erlang cookie (must be identical on all nodes)
+      ansible.builtin.copy:
+        dest: /var/lib/rabbitmq/.erlang.cookie
+        content: "{{ rabbitmq_erlang_cookie }}"
+        owner: rabbitmq
+        group: rabbitmq
+        mode: "0400"
+
+    - name: Enable management plugin (offline, idempotent)
+      ansible.builtin.command: rabbitmq-plugins enable --offline rabbitmq_management
+      register: mgmt_enable
+      changed_when: "'enabled' in (mgmt_enable.stdout | lower)"
+      failed_when: mgmt_enable.rc != 0 and ('already' not in (mgmt_enable.stdout | lower))
+
+    - name: Start RabbitMQ
+      ansible.builtin.service:
+        name: rabbitmq-server
+        enabled: true
+        state: started
+
+    - name: Wait for AMQP port 5672 (local)
+      ansible.builtin.wait_for:
+        host: "127.0.0.1"
+        port: 5672
+        timeout: 120
+
+    - name: Wait for Management port 15672 (local)
+      ansible.builtin.wait_for:
+        host: "127.0.0.1"
+        port: 15672
+        timeout: 120
+
+    - name: Create admin user if missing
+      ansible.builtin.shell: |
+        set -e
+        rabbitmqctl list_users | awk '{print $1}' | grep -qx "{{ rabbitmq_admin_user }}" \
+          || rabbitmqctl add_user "{{ rabbitmq_admin_user }}" "{{ rabbitmq_admin_pass }}"
+      args:
+        executable: /bin/bash
+      register: add_user
+      changed_when: add_user.stdout != ""
+
+    - name: Set admin tags
+      ansible.builtin.command: rabbitmqctl set_user_tags {{ rabbitmq_admin_user }} administrator
+      changed_when: false
+
+    - name: Set admin permissions
+      ansible.builtin.command: rabbitmqctl set_permissions -p {{ rabbitmq_vhost }} {{ rabbitmq_admin_user }} ".*" ".*" ".*"
+      changed_when: false
+
+    - name: Wait for seed AMQP port 5672 from non-seed nodes
+      ansible.builtin.wait_for:
+        host: "{{ hostvars[seed_host].ansible_host }}"
+        port: 5672
+        timeout: 180
+      when: inventory_hostname != seed_host
+
+    - name: Join this node to seed cluster (idempotent)
+      ansible.builtin.shell: |
+        set -euo pipefail
+        # если seed уже виден — считаем, что join не нужен
+        rabbitmqctl cluster_status | grep -q "{{ seed_node }}" && exit 0
+        rabbitmqctl stop_app
+        rabbitmqctl reset
+        rabbitmqctl join_cluster "{{ seed_node }}"
+        rabbitmqctl start_app
+      args:
+        executable: /bin/bash
+      when: inventory_hostname != seed_host
+      register: join_out
+      changed_when: join_out.rc == 0
+
+    - name: Verify cluster contains all nodes (run on seed)
+      ansible.builtin.command: rabbitmqctl cluster_status
+      delegate_to: "{{ seed_host }}"
+      register: cluster_status
+      changed_when: false
+      until: >
+        {% for h in groups['rabbitmq'] -%}
+        ('rabbit@{{ h }}' in cluster_status.stdout)
+        {%- if not loop.last %} and {% endif -%}
+        {%- endfor %}
+      retries: 30
+      delay: 2
+      run_once: true
+
+    - name: Set policy ha-all on all queues (run on seed once)
+      ansible.builtin.command: >
+        rabbitmqctl set_policy ha-all '.*'
+        '{"ha-mode":"all","ha-sync-mode":"automatic"}'
+        --apply-to queues
+      delegate_to: "{{ seed_host }}"
+      run_once: true
