@@ -115,6 +115,8 @@ Ansible playbook
 
 ### Решение:
 
-1. [Playbook](script/claster/1.md)
+Так как нет уточнения каким образом производим установку, и какие хосты используем, ставим RabbitMQ из репозитория Ubuntu включаем management, создаём пользователя, собираем кластер на любое число нод (seed = первая нода в группе), и создаём политику ha-all используем [inventory.ini](script/claster/inventory.ini)
+
+1. [Playbook](script/claster/rabbitmq_cluster.yml)
 
 
