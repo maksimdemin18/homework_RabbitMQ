@@ -11,7 +11,8 @@
 
 ### Решение:
 
-1. запускаем [Vagrant](img/01.png) ``` vagrant up``` ([vagrant](script/Vagrantfile) [provision.sh](script/provision.sh))
+1. запускаем [Vagrant](img/01.png)
+   ``` vagrant up``` ([vagrant](script/Vagrantfile) [provision.sh](script/provision.sh))
 
 2. заходим на [веб интерфейс](img/02.png) [2](img/03.png) [3](img/04.png) 
 
@@ -40,8 +41,9 @@
 
 5. проверяем на веб интерфейсе что сообщение удалено из [очереди](img/09.png)
 
-img/10.png
-img/11.png
+[](img/10.png)
+
+[](img/11.png)
 
 
 ### Задание 3
