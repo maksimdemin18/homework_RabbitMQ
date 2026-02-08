@@ -41,9 +41,9 @@
 
 5. проверяем на веб интерфейсе что сообщение удалено из [очереди](img/09.png)
 
-[](img/10.png)
+[6](img/10.png)
 
-[](img/11.png)
+[7](img/11.png)
 
 
 ### Задание 3
@@ -82,6 +82,26 @@ $ rabbitmqadmin get queue='hello'
 
 ### Решение:
 
+1. запускаем [Vagrant](img/01.png)
+   ``` vagrant up``` ([vagrant](script/claster/Vagrantfile) [provision.sh](script/claster/provision.sh))
+
+2. заходим на веб интерфейс [rmq01](img/16.png)
+
+3. заходим на веб интерфейс [rmq02](img/17.png)
+
+4. проверяем политику ha-all на все очереди на [rmq01](img/18.png)
+
+5. проверяем политику ha-all на все очереди на [rmq02](img/19.png)
+
+6. проверяем состояние кластера на [rmq01](img/20.png)
+
+7. проверяем состояние кластера на [rmq02](img/21.png)
+
+8. отправляем сообщение  [скрипт отправки сообщения](img/24.png) [producer.py](script/producer.py)
+
+9. проверяем очереди в веб интерфейсе на [rmq01](img/22.png) и [rmq02](img/23.png)
+
+10. отправляем сообщение на rmq01, затем останавливаем rmq01, и получаем сообщение с [rmq02](img/26.png)
 
 
 ### Задание 4
@@ -94,5 +114,7 @@ Ansible playbook
 
 
 ### Решение:
+
+1. [Playbook](script/claster/1.md)
 
 
